@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Consulta de Stock</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f4f6f8; color: #1a1a1a; min-height: 100vh; }
+    
+    .header { background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); color: white; padding: 20px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 100; }
+    .header h1 { font-size: 22px; font-weight: 600; margin-bottom: 12px; }
+    
+    .search-container { position: relative; display: flex; gap: 8px; }
+    .search-wrapper { position: relative; flex: 1; }
+    .search-input { width: 100%; padding: 14px 16px 14px 44px; border: none; border-radius: 8px; font-size: 16px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .search-input:focus { outline: 2px solid #60a5fa; }
+    .search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 18px; pointer-events: none; }
+    .scan-btn { background: white; border: none; border-radius: 8px; padding: 0 16px; font-size: 22px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: transform 0.1s; }
+    .scan-btn:hover { transform: scale(1.05); }
+    .scan-btn:active { transform: scale(0.95); }
+    .clear-btn { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: #e5e7eb; border: none; border-radius: 50%; width: 24px; height: 24px; font-size: 14px; cursor: pointer; display: none; align-items: center; justify-content: center; color: #6b7280; }
+    .clear-btn:hover { background: #d1d5db; }
+    
+    .stats { max-width: 1200px; margin: 16px auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 28px; }
+    .results-count { color: #4b5563; font-size: 14px; }
+    .refresh-btn { background: white; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #374151; }
+    .refresh-btn:hover { background: #f3f4f6; }
+    .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 16px 32px; }
+    
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+    
+    .card { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border-left: 4px solid transparent; transition: all 0.15s; display: flex; gap: 14px; }
+    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-1px); }
+    .card.stock-zero { border-left-color: #dc2626; }
+    .card.stock-low { border-left-color: #f59e0b; }
+    .card.stock-ok { border-left-color: #16a34a; }
+    
+    .card-image { flex-shrink: 0; width: 80px; height: 80px; border-radius: 8px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .card-image img { width: 100%; height: 100%; object-fit: cover; }
+    .card-image .no-image { font-size: 32px; opacity: 0.3; }
+    
+    .card-content { flex: 1; min-width: 0; }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 6px; }
+    .card-title { font-size: 14px; font-weight: 600; color: #111827; line-height: 1.3; flex: 1; }
+    .stock-badge { flex-shrink: 0; padding: 3px 8px; border-radius: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .stock-badge.zero { background: #fee2e2; color: #dc2626; }
+    .stock-badge.low { background: #fef3c7; color: #b45309; }
+    .stock-badge.ok { background: #dcfce7; color: #15803d; }
+    .card-info { display: grid; gap: 4px; font-size: 12px; color: #4b5563; }
+    .info-row { display: flex; gap: 4px; }
+    .info-label { font-weight: 500; color: #6b7280; flex-shrink: 0; }
+    .info-value { color: #1f2937; word-break: break-word; }
+    
+    .empty-state { text-align: center; padding: 80px 20px; color: #6b7280; }
+    .empty-state-icon { font-size: 64px; margin-bottom: 16px; opacity: 0.4; }
+    .empty-state-title { font-size: 18px; color: #374151; margin-bottom: 8px; font-weight: 500; }
+    .empty-state-hint { font-size: 14px; color: #9ca3af; line-height: 1.6; }
+    
+    .error-banner { background: #fee2e2; color: #991b1b; padding: 12px 16px; border-radius: 8px; margin: 16px; font-size: 14px; }
+    
+    .loading-bar { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #60a5fa, transparent); background-size: 200% 100%; animation: loadingMove 1.5s linear infinite; z-index: 200; display: none; }
+    .loading-bar.active { display: block; }
+    @keyframes loadingMove { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    
+    /* Modal del scanner */
+    .scanner-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 1000; flex-direction: column; align-items: center; justify-content: center; }
+    .scanner-modal.active { display: flex; }
+    .scanner-header { position: absolute; top: 0; left: 0; right: 0; padding: 16px; display: flex; justify-content: space-between; align-items: center; color: white; background: rgba(0,0,0,0.7); z-index: 10; }
+    .scanner-title { font-size: 16px; font-weight: 500; }
+    .scanner-close { background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; font-size: 20px; cursor: pointer; }
+    #scanner-video-container { position: relative; width: 100%; max-width: 600px; aspect-ratio: 4/3; }
+    #scanner-video-container video { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+    .scanner-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 400px; aspect-ratio: 2/1; border: 3px solid #16a34a; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); pointer-events: none; }
+    .scanner-hint { position: absolute; bottom: 24px; left: 0; right: 0; text-align: center; color: white; font-size: 14px; padding: 0 16px; }
+    
+    @media (max-width: 600px) {
+      .header h1 { font-size: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      .card-title { font-size: 13px; }
+      .card-image { width: 70px; height: 70px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-bar" id="loadingBar"></div>
+  
+  <div class="header">
+    <h1>📦 Consulta de Stock - Repuestos</h1>
+    <div class="search-container">
+      <div class="search-wrapper">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchInput" class="search-input" placeholder="Buscar por código, descripción, marca..." autocomplete="off" spellcheck="false">
+        <button class="clear-btn" id="clearBtn" onclick="limpiarBusqueda()">✕</button>
+      </div>
+      <button class="scan-btn" id="scanBtn" onclick="abrirScanner()" title="Escanear código de barras">📷</button>
+    </div>
+  </div>
+  
+  <div class="stats">
+    <span class="results-count" id="resultsCount"></span>
+    <button class="refresh-btn" id="refreshBtn" onclick="cargarStock()">🔄 Actualizar</button>
+  </div>
+  
+  <div class="container">
+    <div id="content"></div>
+  </div>
+  
+  <div class="scanner-modal" id="scannerModal">
+    <div class="scanner-header">
+      <span class="scanner-title">📷 Apuntá al código de barras</span>
+      <button class="scanner-close" onclick="cerrarScanner()">✕</button>
+    </div>
+    <div id="scanner-video-container">
+      <video id="scanner-video" playsinline></video>
+      <div class="scanner-overlay"></div>
+    </div>
+    <div class="scanner-hint">Centrá el código dentro del recuadro verde</div>
+  </div>
+  
+  <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
+  
+  <script>
+    // ⚠️ IMPORTANTE: REEMPLAZAR ESTA URL por la URL de tu Apps Script
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxV_yac73Zwom5OLntYZLrQuxAsKxL4Ne_tz8tTo42ApG9MlX0cMhPQ-gj9ALXYD3Ib/exec';
+    
+    let stockData = [];
+    let stockLoaded = false;
+    let busquedaTimer = null;
+    let scannerActivo = false;
+    
+    function mostrarLoading(activo) {
+      document.getElementById('loadingBar').classList.toggle('active', activo);
+    }
+    
+    function mostrarEstadoInicial() {
+      const content = document.getElementById('content');
+      content.innerHTML = '<div class="empty-state">' +
+        '<div class="empty-state-icon">🔍</div>' +
+        '<div class="empty-state-title">Empezá a buscar un repuesto</div>' +
+        '<div class="empty-state-hint">Escribí código, descripción, marca o ubicación<br>o tocá 📷 para escanear el código de barras</div>' +
+        '</div>';
+      document.getElementById('resultsCount').textContent = '';
+    }
+    
+    async function cargarStock() {
+      const refreshBtn = document.getElementById('refreshBtn');
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '⏳ Cargando...';
+      mostrarLoading(true);
+      
+      try {
+        const url = APPS_SCRIPT_URL + '?action=getStock&_=' + Date.now();
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+        
+        stockData = data.items || [];
+        stockData.sort((a, b) => a.descripcion.localeCompare(b.descripcion));
+        stockLoaded = true;
+        
+        const query = document.getElementById('searchInput').value.trim();
+        if (query) filtrarYMostrar();
+        else mostrarEstadoInicial();
+      } catch (err) {
+        mostrarError('Error de conexión: ' + err.message);
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '🔄 Actualizar';
+        mostrarLoading(false);
+      }
+    }
+    
+    function mostrarError(mensaje) {
+      const content = document.getElementById('content');
+      content.innerHTML = '<div class="error-banner">⚠️ ' + escapeHtml(mensaje) + '</div>';
+      document.getElementById('resultsCount').textContent = 'Error';
+    }
+    
+    function filtrarYMostrar() {
+      const query = document.getElementById('searchInput').value.toLowerCase().trim();
+      document.getElementById('clearBtn').style.display = query ? 'flex' : 'none';
+      
+      if (!query) { mostrarEstadoInicial(); return; }
+      if (!stockLoaded) { cargarStock(); return; }
+      
+      const palabras = query.split(/\s+/);
+      const resultados = stockData.filter(item => {
+        const textoCompleto = (item.codigo + ' ' + item.codigoInterno + ' ' + item.descripcion + ' ' + item.marca + ' ' + item.ubicacion + ' ' + item.estanteria + ' ' + item.caja + ' ' + item.tipo).toLowerCase();
+        return palabras.every(p => textoCompleto.includes(p));
+      });
+      
+      mostrarResultados(resultados);
+    }
+    
+    function mostrarResultados(items) {
+      const content = document.getElementById('content');
+      const count = document.getElementById('resultsCount');
+      
+      count.textContent = items.length + ' resultado' + (items.length === 1 ? '' : 's');
+      
+      if (items.length === 0) {
+        content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🤷</div><div class="empty-state-title">No se encontraron repuestos</div><div class="empty-state-hint">Probá con otra palabra o un código distinto</div></div>';
+        return;
+      }
+      
+      const visibles = items.slice(0, 200);
+      const truncado = items.length > 200;
+      
+      let html = '<div class="grid">';
+      
+      for (const item of visibles) {
+        const stock = item.stockActual;
+        let cardClass, badgeClass, badgeText;
+        if (stock === 0) { cardClass = 'stock-zero'; badgeClass = 'zero'; badgeText = 'SIN STOCK'; }
+        else if (stock <= 2) { cardClass = 'stock-low'; badgeClass = 'low'; badgeText = 'Stock: ' + stock; }
+        else { cardClass = 'stock-ok'; badgeClass = 'ok'; badgeText = 'Stock: ' + stock; }
+        
+        let imgHtml;
+        if (item.imagen) {
+          imgHtml = '<img src="' + escapeHtml(item.imagen) + '" alt="" loading="lazy" onerror="this.parentNode.innerHTML=\'<div class=&quot;no-image&quot;>📦</div>\'">';
+        } else {
+          imgHtml = '<div class="no-image">📦</div>';
+        }
+        
+        html += '<div class="card ' + cardClass + '">';
+        html += '<div class="card-image">' + imgHtml + '</div>';
+        html += '<div class="card-content">';
+        html += '<div class="card-header">';
+        html += '<div class="card-title">' + escapeHtml(item.descripcion || 'Sin descripción') + '</div>';
+        html += '<div class="stock-badge ' + badgeClass + '">' + escapeHtml(badgeText) + '</div>';
+        html += '</div>';
+        html += '<div class="card-info">';
+        if (item.codigo) html += '<div class="info-row"><span class="info-label">🏷️</span><span class="info-value">' + escapeHtml(item.codigo) + '</span></div>';
+        if (item.marca) html += '<div class="info-row"><span class="info-label">🏭</span><span class="info-value">' + escapeHtml(item.marca) + '</span></div>';
+        if (item.ubicacion) html += '<div class="info-row"><span class="info-label">📍</span><span class="info-value">' + escapeHtml(item.ubicacion) + (item.estanteria ? ' / ' + escapeHtml(item.estanteria) : '') + '</span></div>';
+        if (item.caja) html += '<div class="info-row"><span class="info-label">📦</span><span class="info-value">' + escapeHtml(item.caja) + '</span></div>';
+        html += '</div></div></div>';
+      }
+      
+      html += '</div>';
+      
+      if (truncado) {
+        html += '<div style="text-align:center; padding:16px; color:#6b7280; font-size:13px;">Mostrando primeros 200 resultados. Refiná tu búsqueda.</div>';
+      }
+      
+      content.innerHTML = html;
+    }
+    
+    function limpiarBusqueda() {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('clearBtn').style.display = 'none';
+      mostrarEstadoInicial();
+      document.getElementById('searchInput').focus();
+    }
+    
+    function escapeHtml(text) {
+      if (text == null) return '';
+      const div = document.createElement('div');
+      div.textContent = String(text);
+      return div.innerHTML;
+    }
+    
+    // ============ SCANNER ============
+    
+    function abrirScanner() {
+      if (typeof Quagga === 'undefined') {
+        alert('La librería de scanner aún no cargó. Esperá unos segundos.');
+        return;
+      }
+      
+      const modal = document.getElementById('scannerModal');
+      modal.classList.add('active');
+      scannerActivo = true;
+      
+      Quagga.init({
+        inputStream: {
+          name: "Live", type: "LiveStream",
+          target: document.querySelector('#scanner-video-container'),
+          constraints: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+        },
+        decoder: {
+          readers: ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader", "code_39_vin_reader", "codabar_reader", "upc_reader", "upc_e_reader", "i2of5_reader"]
+        },
+        locate: true,
+        numOfWorkers: navigator.hardwareConcurrency || 4
+      }, function(err) {
+        if (err) {
+          console.error('Error scanner:', err);
+          alert('No se pudo iniciar la cámara: ' + (err.message || err.name || 'error desconocido') + '\n\nVerificá que diste permisos de cámara al sitio.');
+          cerrarScanner();
+          return;
+        }
+        Quagga.start();
+      });
+      
+      Quagga.onDetected(onCodigoDetectado);
+    }
+    
+    function cerrarScanner() {
+      const modal = document.getElementById('scannerModal');
+      modal.classList.remove('active');
+      if (scannerActivo && typeof Quagga !== 'undefined') {
+        try { Quagga.offDetected(onCodigoDetectado); Quagga.stop(); }
+        catch (e) { console.warn(e); }
+        scannerActivo = false;
+      }
+    }
+    
+    function onCodigoDetectado(result) {
+      if (!result || !result.codeResult) return;
+      const codigo = result.codeResult.code;
+      if (navigator.vibrate) navigator.vibrate(100);
+      cerrarScanner();
+      const input = document.getElementById('searchInput');
+      input.value = codigo;
+      filtrarYMostrar();
+    }
+    
+    // ============ INICIALIZACION ============
+    
+    document.getElementById('searchInput').addEventListener('input', function() {
+      clearTimeout(busquedaTimer);
+      busquedaTimer = setTimeout(filtrarYMostrar, 150);
+    });
+    
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && scannerActivo) cerrarScanner();
+    });
+    
+    window.addEventListener('DOMContentLoaded', function() {
+      mostrarEstadoInicial();
+      cargarStock();
+    });
+  </script>
+</body>
+</html>
